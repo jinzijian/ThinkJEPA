@@ -48,8 +48,14 @@ SKIP_VJEPA="${SKIP_VJEPA:-1}"
 THINKJEPA_VLM_SOURCE="${THINKJEPA_VLM_SOURCE:-both}"
 THINKJEPA_VLM_LAYER_SELECTOR="${THINKJEPA_VLM_LAYER_SELECTOR:-last}"
 THINKJEPA_VLM_COND_MODE="${THINKJEPA_VLM_COND_MODE:-film}"
+THINKJEPA_DUAL_TOWER="${THINKJEPA_DUAL_TOWER:-1}"
+NO_THINKJEPA_CACHE_EXT="${NO_THINKJEPA_CACHE_EXT:-0}"
+THINKJEPA_LAMBDA_VLM="${THINKJEPA_LAMBDA_VLM:-0.5}"
+THINKJEPA_LAMBDA_MUTUAL="${THINKJEPA_LAMBDA_MUTUAL:-0.1}"
+THINKJEPA_VLM_TOWER_HIDDEN_DIM="${THINKJEPA_VLM_TOWER_HIDDEN_DIM:-384}"
 LR="${LR:-1e-3}"
 LR_PRED="${LR_PRED:-1e-4}"
+LR_VLM="${LR_VLM:-${LR_PRED}}"
 MAX_VIS_BATCHES="${MAX_VIS_BATCHES:-1}"
 AUTO_RESUME="${AUTO_RESUME:-0}"
 RESUME_CKPT="${RESUME_CKPT:-}"
@@ -88,11 +94,21 @@ CMD=(
   --thinkjepa_vlm_source "${THINKJEPA_VLM_SOURCE}"
   --thinkjepa_vlm_layer_selector "${THINKJEPA_VLM_LAYER_SELECTOR}"
   --thinkjepa_vlm_cond_mode "${THINKJEPA_VLM_COND_MODE}"
+  --lambda_vlm "${THINKJEPA_LAMBDA_VLM}"
+  --lambda_mutual "${THINKJEPA_LAMBDA_MUTUAL}"
+  --thinkjepa_vlm_tower_hidden_dim "${THINKJEPA_VLM_TOWER_HIDDEN_DIM}"
   --lr "${LR}"
   --lr_pred "${LR_PRED}"
+  --lr_vlm "${LR_VLM}"
   --max_visual_batches "${MAX_VIS_BATCHES}"
 )
 
+if [[ "${THINKJEPA_DUAL_TOWER}" == "1" ]]; then
+  CMD+=(--thinkjepa_dual_tower)
+fi
+if [[ "${NO_THINKJEPA_CACHE_EXT}" == "1" ]]; then
+  CMD+=(--no_thinkjepa_use_cache_ext)
+fi
 if [[ "${USE_NPZ_CACHE}" == "1" ]]; then
   CMD+=(--use_npz_cache)
 fi

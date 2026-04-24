@@ -511,6 +511,9 @@ def build_training_environment(args: argparse.Namespace, spec: ExperimentSpec, s
             "THINKJEPA_VLM_SOURCE": spec.env.get("THINKJEPA_VLM_SOURCE", "both"),
             "THINKJEPA_VLM_LAYER_SELECTOR": spec.env.get("THINKJEPA_VLM_LAYER_SELECTOR", "last"),
             "THINKJEPA_VLM_LAYER_INDEX": spec.env.get("THINKJEPA_VLM_LAYER_INDEX", "-1"),
+            "THINKJEPA_DUAL_TOWER": spec.env.get("THINKJEPA_DUAL_TOWER", "1"),
+            "THINKJEPA_LAMBDA_VLM": spec.env.get("THINKJEPA_LAMBDA_VLM", "0.5"),
+            "THINKJEPA_LAMBDA_MUTUAL": spec.env.get("THINKJEPA_LAMBDA_MUTUAL", "0.1"),
             "CAMERA_MODE": str(getattr(args, "camera_mode", "auto")).lower(),
             "ZERO_VISUAL_INPUT": spec.env.get("ZERO_VISUAL_INPUT", "0"),
             "HF_HOME": os.environ.get("HF_HOME", ""),
@@ -1774,7 +1777,7 @@ def main() -> None:
                     "env": {k: env[k] for k in sorted(env) if k in {
                         "DATA_DIR","CACHE_DIR","TRAIN_MANIFEST","TEST_MANIFEST","GPU_LIST","NPROC_PER_NODE","OUT_DIR","RESULTS_MD","LOG_FILE","OUTPUT_MP4",
                         "EPOCHS","LR","LR_PRED","NUM_WORKERS","TRAIN_BATCH_SIZE","TEST_BATCH_SIZE","PREFETCH_FACTOR","MAX_VIS_BATCHES","SEED","PAST_T","FUTURE_T","PREDICTOR","BACKBONE","JOINT_PRED",
-                        "SKIP_VJEPA","THINKJEPA_VLM_SOURCE","THINKJEPA_VLM_LAYER_SELECTOR","THINKJEPA_VLM_LAYER_INDEX","CAMERA_MODE","ZERO_VISUAL_INPUT","NO_THINKJEPA_CACHE_EXT",
+                        "SKIP_VJEPA","THINKJEPA_VLM_SOURCE","THINKJEPA_VLM_LAYER_SELECTOR","THINKJEPA_VLM_LAYER_INDEX","THINKJEPA_DUAL_TOWER","THINKJEPA_LAMBDA_VLM","THINKJEPA_LAMBDA_MUTUAL","CAMERA_MODE","ZERO_VISUAL_INPUT","NO_THINKJEPA_CACHE_EXT",
                         "PIN_MEMORY","PERSISTENT_WORKERS","DDP_FIND_UNUSED_PARAMETERS","OMP_THREADS","MKL_THREADS","OPENBLAS_THREADS","NUMEXPR_THREADS","MALLOC_ARENA_MAX","PYTORCH_CUDA_ALLOC_CONF","AUTO_RESUME"
                     }},
                     "git_commit": git_hash,

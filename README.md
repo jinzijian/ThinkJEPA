@@ -351,8 +351,12 @@ python cache_train/thinker_train.py \
   --thinkjepa_vlm_source both \
   --thinkjepa_vlm_layer_selector last \
   --thinkjepa_vlm_cond_mode film \
+  --thinkjepa_dual_tower \
+  --lambda_vlm 0.5 \
+  --lambda_mutual 0.1 \
   --lr 1e-3 \
   --lr_pred 1e-4 \
+  --lr_vlm 1e-4 \
   --max_visual_batches 1 \
   --use_npz_cache \
   --skip_vjepa \
@@ -399,8 +403,12 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 cache_trai
   --thinkjepa_vlm_source both \
   --thinkjepa_vlm_layer_selector last \
   --thinkjepa_vlm_cond_mode film \
+  --thinkjepa_dual_tower \
+  --lambda_vlm 0.5 \
+  --lambda_mutual 0.1 \
   --lr 1e-3 \
   --lr_pred 1e-4 \
+  --lr_vlm 1e-4 \
   --max_visual_batches 1 \
   --use_npz_cache \
   --skip_vjepa \
@@ -423,6 +431,9 @@ TEST_MANIFEST=<TEST_MANIFEST_OPTIONAL> \
 VJEPA2_ROOT=$PWD/vjepa2 \
 bash scripts/train.sh
 ```
+
+`scripts/train.sh` enables the JEPA/VLM dual-tower path by default for `PREDICTOR=thinkjepa`.
+Set `THINKJEPA_DUAL_TOWER=0` to return to the earlier one-way VLM-conditioning setup.
 
 For the public release, we smoke-tested training with both:
 

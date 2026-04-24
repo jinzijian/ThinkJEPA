@@ -39,11 +39,16 @@ for _path in (
     if _path_str not in sys.path:
         sys.path.insert(0, _path_str)
 
-import vjepa2.src.datasets.utils.video.transforms as video_transforms
-import vjepa2.src.datasets.utils.video.volume_transforms as volume_transforms
+try:
+    import vjepa2.src.datasets.utils.video.transforms as video_transforms
+    import vjepa2.src.datasets.utils.video.volume_transforms as volume_transforms
+except ModuleNotFoundError:
+    video_transforms = None
+    volume_transforms = None
 
 from cache_train.models import (
     TrajectoryReadoutMLP,
+    VlmLatentPredictionTower,
 )
 from cache_train.hf_egodex import (
     DEFAULT_EGODEX_PART2_HF_DIR,
@@ -180,6 +185,41 @@ def compute_predicted_latent_metrics(pred_latent, target_latent):
         ).mean(),
         "pred_latent_smooth_l1": F.smooth_l1_loss(pred_latent, target_latent),
         "pred_latent_cosine_distance": 1.0 - cosine_sim,
+    }
+
+
+def initialize_dual_tower_metric_totals():
+    return {
+        "vlm_loss": 0.0,
+        "vlm_latent_dist": 0.0,
+        "vlm_latent_smooth_l1": 0.0,
+        "vlm_latent_cosine_distance": 0.0,
+        "mutual_loss": 0.0,
+        "mutual_latent_dist": 0.0,
+        "mutual_latent_cosine_distance": 0.0,
+    }
+
+
+def compute_dual_tower_metrics(jepa_latent, vlm_latent, target_latent):
+    vlm_metrics_raw = compute_predicted_latent_metrics(vlm_latent, target_latent)
+    jepa_float = jepa_latent.float()
+    vlm_float = vlm_latent.float()
+    mutual_jepa = F.mse_loss(jepa_float, vlm_float.detach())
+    mutual_vlm = F.mse_loss(vlm_float, jepa_float.detach())
+    mutual_loss = 0.5 * (mutual_jepa + mutual_vlm)
+    mutual_cos = 1.0 - F.cosine_similarity(
+        jepa_float, vlm_float, dim=-1, eps=1e-8
+    ).mean()
+    return {
+        "vlm_loss": vlm_metrics_raw["pred_loss"],
+        "vlm_latent_dist": vlm_metrics_raw["pred_latent_dist"],
+        "vlm_latent_smooth_l1": vlm_metrics_raw["pred_latent_smooth_l1"],
+        "vlm_latent_cosine_distance": vlm_metrics_raw[
+            "pred_latent_cosine_distance"
+        ],
+        "mutual_loss": mutual_loss,
+        "mutual_latent_dist": torch.linalg.norm(jepa_float - vlm_float, dim=-1).mean(),
+        "mutual_latent_cosine_distance": mutual_cos,
     }
 
 
@@ -388,6 +428,7 @@ def save_training_checkpoint(
     best_blob,
     *,
     predictor=None,
+    vlm_tower=None,
     optimizer_pred=None,
     scheduler=None,
     scaler=None,
@@ -403,6 +444,8 @@ def save_training_checkpoint(
     }
     if predictor is not None:
         payload["predictor"] = unwrap_ddp_module(predictor).state_dict()
+    if vlm_tower is not None:
+        payload["vlm_tower"] = unwrap_ddp_module(vlm_tower).state_dict()
     if optimizer_pred is not None:
         payload["optimizer_pred"] = optimizer_pred.state_dict()
     if scheduler is not None:
@@ -520,6 +563,12 @@ def load_pretrained_dense_jepa_weights(model, pretrained_weights):
 
 
 def build_dense_jepa_video_transform(img_size):
+    if video_transforms is None or volume_transforms is None:
+        raise ImportError(
+            "Online V-JEPA encoding requires vjepa2.src.datasets video transforms. "
+            "Use --use_npz_cache/--skip_vjepa with cached features, or point VJEPA2_ROOT "
+            "at a full V-JEPA2 checkout that includes src/datasets."
+        )
     short_side_size = int(256.0 / 224 * img_size)
     eval_transform = video_transforms.Compose(
         [
@@ -1369,6 +1418,43 @@ def _build_thinkjepa_ext_from_extras(extras, args, device):
     return build_thinkjepa_guidance_inputs(extras, args, device)
 
 
+def build_batched_vlm_guidance_inputs(extras, args, device):
+    if extras is None:
+        return None
+    if not bool(getattr(args, "thinkjepa_use_vlm_merge", True)):
+        return None
+    extras = apply_guidance_ablation_policy(extras, args)
+
+    def _to_float_tensor(x):
+        if x is None:
+            return None
+        if isinstance(x, torch.Tensor):
+            return x.to(device=device, dtype=torch.float32)
+        if isinstance(x, np.ndarray):
+            return torch.from_numpy(x).to(device=device, dtype=torch.float32)
+        raise TypeError(f"Unsupported type {type(x)} for VLM features")
+
+    def _to_bool_mask(x):
+        if x is None:
+            return None
+        if isinstance(x, torch.Tensor):
+            x = x.to(device=device)
+        elif isinstance(x, np.ndarray):
+            x = torch.from_numpy(x).to(device=device)
+        else:
+            raise TypeError(f"Unsupported type {type(x)} for VLM masks")
+        if x.dim() == 4:
+            x = x.any(dim=-1)
+        return x.to(dtype=torch.bool)
+
+    return {
+        "vlm_old": _to_float_tensor(extras.get("vlm_old", None)),
+        "vlm_new": _to_float_tensor(extras.get("vlm_new", None)),
+        "vlm_old_mask": _to_bool_mask(extras.get("vlm_old_mask", None)),
+        "vlm_new_mask": _to_bool_mask(extras.get("vlm_new_mask", None)),
+    }
+
+
 def write_markdown_experiment_report(
     md_path: Path,
     args,
@@ -1389,6 +1475,9 @@ def write_markdown_experiment_report(
     lines.append(f"- `cache_dir`: `{getattr(args, 'cache_dir', '')}`")
     lines.append(f"- `backbone`: `{getattr(args, 'backbone', '')}`")
     lines.append(f"- `predictor`: `{getattr(args, 'predictor', '')}`")
+    lines.append(f"- `thinkjepa_dual_tower`: `{getattr(args, 'thinkjepa_dual_tower', False)}`")
+    lines.append(f"- `lambda_vlm`: `{getattr(args, 'lambda_vlm', '')}`")
+    lines.append(f"- `lambda_mutual`: `{getattr(args, 'lambda_mutual', '')}`")
     lines.append(f"- `epochs`: `{getattr(args, 'epochs', '')}`")
     lines.append(f"- `seed`: `{getattr(args, 'seed', '')}`")
     lines.append(f"- `trajmode`: `{getattr(args, 'trajmode', '')}`")
@@ -1423,6 +1512,8 @@ def write_markdown_experiment_report(
         lines.append(
             f"- `best_val_pred_latent_cosine_distance`: `{best.get('pred_latent_cosine_distance', 'NA')}`"
         )
+        lines.append(f"- `best_val_vlm_loss`: `{best.get('vlm_loss', 'NA')}`")
+        lines.append(f"- `best_val_mutual_loss`: `{best.get('mutual_loss', 'NA')}`")
         lines.append(f"- `best_ckpt`: `{best.get('ckpt', 'NA')}`")
         lines.append("")
         lines.append("## Last Epoch")
@@ -1452,6 +1543,10 @@ def write_markdown_experiment_report(
         lines.append(
             f"- `val_pred_latent_cosine_distance`: `{last.get('val_pred_latent_cosine_distance', 'NA')}`"
         )
+        lines.append(f"- `train_vlm_loss`: `{last.get('train_vlm_loss', 'NA')}`")
+        lines.append(f"- `train_mutual_loss`: `{last.get('train_mutual_loss', 'NA')}`")
+        lines.append(f"- `val_vlm_loss`: `{last.get('val_vlm_loss', 'NA')}`")
+        lines.append(f"- `val_mutual_loss`: `{last.get('val_mutual_loss', 'NA')}`")
         lines.append(f"- `val_avg_dist`: `{last.get('val_avg_dist', 'NA')}`")
         lines.append(f"- `val_final_dist`: `{last.get('val_final_dist', 'NA')}`")
         lines.append("")
@@ -1461,12 +1556,14 @@ def write_markdown_experiment_report(
         lines.append(
             "| epoch | train_loss | train_pred_loss | train_pred_latent_dist | "
             "train_pred_latent_smooth_l1 | train_pred_latent_cosine_distance | "
+            "train_vlm_loss | train_mutual_loss | "
             "val_loss | val_pred_loss | val_pred_latent_dist | "
             "val_pred_latent_smooth_l1 | val_pred_latent_cosine_distance | "
+            "val_vlm_loss | val_mutual_loss | "
             "val_avg_dist | val_final_dist | is_best |"
         )
         lines.append(
-            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|"
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|"
         )
         for e in epochs:
             lines.append(
@@ -1476,11 +1573,15 @@ def write_markdown_experiment_report(
                 f"{e.get('train_pred_latent_dist','')} | "
                 f"{e.get('train_pred_latent_smooth_l1','')} | "
                 f"{e.get('train_pred_latent_cosine_distance','')} | "
+                f"{e.get('train_vlm_loss','')} | "
+                f"{e.get('train_mutual_loss','')} | "
                 f"{e.get('val_loss','')} | "
                 f"{e.get('val_pred_loss','')} | "
                 f"{e.get('val_pred_latent_dist','')} | "
                 f"{e.get('val_pred_latent_smooth_l1','')} | "
                 f"{e.get('val_pred_latent_cosine_distance','')} | "
+                f"{e.get('val_vlm_loss','')} | "
+                f"{e.get('val_mutual_loss','')} | "
                 f"{e.get('val_avg_dist','')} | "
                 f"{e.get('val_final_dist','')} | "
                 f"{'Y' if e.get('is_best', False) else ''} |"
@@ -2036,6 +2137,7 @@ def main(args):
     )
 
     predictor = None
+    vlm_tower = None
     optimizer_pred = None
 
     total_epochs = num_epoch
@@ -2120,6 +2222,8 @@ def main(args):
                 "pred_latent_dist": float("inf"),
                 "pred_latent_smooth_l1": float("inf"),
                 "pred_latent_cosine_distance": float("inf"),
+                "vlm_loss": float("inf"),
+                "mutual_loss": float("inf"),
                 "ckpt": "",
             },
         },
@@ -2130,8 +2234,10 @@ def main(args):
         auto_resume=bool(getattr(args, "auto_resume", False)),
     )
     resume_predictor_state = None
+    resume_vlm_tower_state = None
     resume_optimizer_pred_state = None
     resume_predictor_loaded = False
+    resume_vlm_tower_loaded = False
     start_epoch = 0
     if resume_ckpt_path is not None:
         resume_blob = torch_load_checkpoint(resume_ckpt_path, map_location="cpu")
@@ -2159,6 +2265,7 @@ def main(args):
                 f"{resume_ckpt_path}"
             )
         resume_predictor_state = resume_blob.get("predictor")
+        resume_vlm_tower_state = resume_blob.get("vlm_tower")
         resume_optimizer_pred_state = resume_blob.get("optimizer_pred")
         start_epoch = ckpt_epoch
         if isinstance(resume_blob.get("best"), dict):
@@ -2180,6 +2287,10 @@ def main(args):
         t0 = time.time()
 
         cls_model.train()
+        if predictor is not None:
+            predictor.train()
+        if vlm_tower is not None:
+            vlm_tower.train()
         if model_pt is not None:
             model_pt.eval()
         optimizer.zero_grad(set_to_none=True)
@@ -2187,8 +2298,10 @@ def main(args):
             optimizer_pred.zero_grad(set_to_none=True)
         train_loss_sum = train_acc_sum = train_avgdist_sum = train_finaldist_sum = 0.0
         train_lat_metric_sums = initialize_latent_metric_totals()
+        train_dual_metric_sums = initialize_dual_tower_metric_totals()
         train_count = 0
         train_pred_count = 0
+        train_dual_count = 0
         nonfinite_skip_count = 0
         accum_steps = 0
 
@@ -2453,6 +2566,43 @@ def main(args):
                         vlm_old_dim=thinkjepa_vlm_old_dim,
                         vlm_new_dim=thinkjepa_vlm_new_dim,
                     ).cuda()
+                    if bool(getattr(args, "thinkjepa_dual_tower", False)):
+                        if (not thinkjepa_use_vlm_merge) or (
+                            str(getattr(args, "thinkjepa_vlm_source", "both")).lower()
+                            == "none"
+                        ):
+                            if is_primary_process(rank):
+                                print(
+                                    "[WARN] --thinkjepa_dual_tower requested but VLM merge/source is disabled; "
+                                    "skipping VLM latent tower."
+                                )
+                        else:
+                            vlm_tower = VlmLatentPredictionTower(
+                                vlm_old_dim=thinkjepa_vlm_old_dim,
+                                vlm_new_dim=thinkjepa_vlm_new_dim,
+                                latent_dim=D,
+                                hidden_dim=int(
+                                    getattr(args, "thinkjepa_vlm_tower_hidden_dim", 384)
+                                ),
+                                max_frames=max(
+                                    int(getattr(args, "thinkjepa_vlm_tower_max_frames", 128)),
+                                    int(total_frames),
+                                ),
+                                max_patches=max(
+                                    int(getattr(args, "thinkjepa_vlm_tower_max_patches", 4096)),
+                                    int(P),
+                                ),
+                                dropout=float(
+                                    getattr(args, "thinkjepa_vlm_tower_dropout", 0.1)
+                                ),
+                            ).cuda()
+                            if is_primary_process(rank):
+                                print(
+                                    f"[INFO] ThinkJEPA dual tower enabled: "
+                                    f"VLM latent tower hidden={getattr(args, 'thinkjepa_vlm_tower_hidden_dim', 384)} "
+                                    f"latent_dim={D} max_frames={unwrap_ddp_module(vlm_tower).max_frames} "
+                                    f"max_patches={unwrap_ddp_module(vlm_tower).max_patches}"
+                                )
                 else:
                     predictor = None
 
@@ -2472,11 +2622,37 @@ def main(args):
                         output_device=device.index,
                         find_unused_parameters=predictor_find_unused,
                     )
+                if ddp and (vlm_tower is not None):
+                    vlm_tower = torch.nn.parallel.DistributedDataParallel(
+                        vlm_tower,
+                        device_ids=[device.index],
+                        output_device=device.index,
+                        find_unused_parameters=True,
+                    )
 
                 if predictor is not None:
+                    pred_params = [
+                        p for p in predictor.parameters() if p.requires_grad
+                    ]
+                    param_groups = [
+                        {
+                            "params": pred_params,
+                            "lr": float(getattr(args, "lr_pred", 1e-4)),
+                        }
+                    ]
+                    if vlm_tower is not None:
+                        vlm_params = [
+                            p for p in vlm_tower.parameters() if p.requires_grad
+                        ]
+                        if vlm_params:
+                            param_groups.append(
+                                {
+                                    "params": vlm_params,
+                                    "lr": float(getattr(args, "lr_vlm", getattr(args, "lr_pred", 1e-4))),
+                                }
+                            )
                     optimizer_pred = torch.optim.AdamW(
-                        (p for p in predictor.parameters() if p.requires_grad),
-                        lr=float(getattr(args, "lr_pred", 1e-4)),
+                        param_groups,
                         weight_decay=1e-4,
                     )
                     if not resume_predictor_loaded and (
@@ -2485,15 +2661,37 @@ def main(args):
                         unwrap_ddp_module(predictor).load_state_dict(
                             resume_predictor_state, strict=True
                         )
-                        if resume_optimizer_pred_state is not None:
-                            optimizer_pred.load_state_dict(
-                                resume_optimizer_pred_state
-                            )
                         resume_predictor_loaded = True
                         if is_primary_process(rank):
                             print(
-                                "[INFO] loaded predictor/optimizer_pred state from resume checkpoint"
+                                "[INFO] loaded predictor state from resume checkpoint"
                             )
+                    if (
+                        vlm_tower is not None
+                        and not resume_vlm_tower_loaded
+                        and resume_vlm_tower_state is not None
+                    ):
+                        unwrap_ddp_module(vlm_tower).load_state_dict(
+                            resume_vlm_tower_state, strict=True
+                        )
+                        resume_vlm_tower_loaded = True
+                        if is_primary_process(rank):
+                            print(
+                                "[INFO] loaded VLM tower state from resume checkpoint"
+                            )
+                    if resume_optimizer_pred_state is not None:
+                        try:
+                            optimizer_pred.load_state_dict(resume_optimizer_pred_state)
+                            if is_primary_process(rank):
+                                print(
+                                    "[INFO] loaded predictor/VLM optimizer state from resume checkpoint"
+                                )
+                        except ValueError as ex:
+                            if is_primary_process(rank):
+                                print(
+                                    f"[WARN] could not load optimizer_pred state after dual-tower shape change: {ex}",
+                                    flush=True,
+                                )
 
             # ==== predictor forward (build pred_loss & feats_task_in) ====
             pred_metrics = {
@@ -2502,7 +2700,17 @@ def main(args):
                 "pred_latent_smooth_l1": torch.tensor(0.0, device=device),
                 "pred_latent_cosine_distance": torch.tensor(0.0, device=device),
             }
+            dual_metrics = {
+                "vlm_loss": torch.tensor(0.0, device=device),
+                "vlm_latent_dist": torch.tensor(0.0, device=device),
+                "vlm_latent_smooth_l1": torch.tensor(0.0, device=device),
+                "vlm_latent_cosine_distance": torch.tensor(0.0, device=device),
+                "mutual_loss": torch.tensor(0.0, device=device),
+                "mutual_latent_dist": torch.tensor(0.0, device=device),
+                "mutual_latent_cosine_distance": torch.tensor(0.0, device=device),
+            }
             pred_metric_valid = False
+            dual_metric_valid = False
             if use_pred and (predictor is not None):
                 if args.predictor == "tiny":
                     # Strictly use the history window (p0, p1) as feats_ar_in (left side)
@@ -2631,6 +2839,22 @@ def main(args):
                         )
                         pred_metrics = compute_predicted_latent_metrics(y_future, tgt_future)
                         pred_metric_valid = True
+                        if vlm_tower is not None:
+                            dual_ext = build_batched_vlm_guidance_inputs(
+                                extras=extras,
+                                args=args,
+                                device=x_seq.device,
+                            )
+                            vlm_future = vlm_tower(
+                                dual_ext,
+                                feats_teacher_full[:, p0:p1, ...].contiguous(),
+                                target_shape=y_future.shape,
+                            )
+                            if vlm_future is not None:
+                                dual_metrics = compute_dual_tower_metrics(
+                                    y_future, vlm_future, tgt_future
+                                )
+                                dual_metric_valid = True
 
                     feats_task_in = y_future.detach()
 
@@ -2700,6 +2924,12 @@ def main(args):
                 nonfinite_reasons.append(
                     f"pred_loss={scalar_debug_string(pred_metrics['pred_loss'])}"
                 )
+            if dual_metric_valid:
+                for key in ("vlm_loss", "mutual_loss"):
+                    if not torch.isfinite(dual_metrics[key]).all():
+                        nonfinite_reasons.append(
+                            f"{key}={scalar_debug_string(dual_metrics[key])}"
+                        )
             any_nonfinite = _any_rank(int(bool(nonfinite_reasons)), ddp)
             if any_nonfinite:
                 batch_paths_msg = summarize_batch_paths(paths)
@@ -2741,9 +2971,17 @@ def main(args):
                 and args.optimize_together_downstream
                 and (predictor is not None)
             ):
+                dual_loss = (
+                    float(getattr(args, "lambda_vlm", 0.0)) * dual_metrics["vlm_loss"]
+                    + float(getattr(args, "lambda_mutual", 0.0))
+                    * dual_metrics["mutual_loss"]
+                    if dual_metric_valid
+                    else torch.tensor(0.0, device=device)
+                )
                 total_loss = (
                     args.lambda_task * task_loss
                     + args.lambda_pred * pred_metrics["pred_loss"]
+                    + dual_loss
                 ) / max(grad_accum_steps, 1)
                 if use_amp:
                     scaler.scale(total_loss).backward()
@@ -2758,7 +2996,16 @@ def main(args):
             ):
                 if optimizer_pred is not None:
                     optimizer_pred.zero_grad(set_to_none=True)
-                    loss_pred_norm = pred_metrics["pred_loss"] / max(
+                    loss_pred = pred_metrics["pred_loss"]
+                    if dual_metric_valid:
+                        loss_pred = (
+                            loss_pred
+                            + float(getattr(args, "lambda_vlm", 0.0))
+                            * dual_metrics["vlm_loss"]
+                            + float(getattr(args, "lambda_mutual", 0.0))
+                            * dual_metrics["mutual_loss"]
+                        )
+                    loss_pred_norm = loss_pred / max(
                         grad_accum_steps, 1
                     )
                     if use_amp:
@@ -2795,6 +3042,10 @@ def main(args):
                 for key in train_lat_metric_sums:
                     train_lat_metric_sums[key] += float(pred_metrics[key].item())
                 train_pred_count += 1
+            if dual_metric_valid:
+                for key in train_dual_metric_sums:
+                    train_dual_metric_sums[key] += float(dual_metrics[key].item())
+                train_dual_count += 1
 
             if accum_steps >= max(grad_accum_steps, 1):
                 if use_amp:
@@ -2835,6 +3086,16 @@ def main(args):
                             if pred_metric_valid
                             else "NA"
                         ),
+                        "vlm_loss": (
+                            f"{float(dual_metrics['vlm_loss'].item()):.4f}"
+                            if dual_metric_valid
+                            else "NA"
+                        ),
+                        "mutual": (
+                            f"{float(dual_metrics['mutual_loss'].item()):.4f}"
+                            if dual_metric_valid
+                            else "NA"
+                        ),
                         "acc": f"{float(acc):.3f}",
                         "ADE": f"{float(avg_dist.mean().item()):.3f}",
                         "FDE": f"{float(final_dist.mean().item()):.3f}",
@@ -2862,12 +3123,18 @@ def main(args):
 
         # ---------------- Eval ----------------
         cls_model.eval()
+        if predictor is not None:
+            predictor.eval()
+        if vlm_tower is not None:
+            vlm_tower.eval()
         if model_pt is not None:
             model_pt.eval()
         test_loss_sum = test_acc_sum = test_avgdist_sum = test_finaldist_sum = 0.0
         test_lat_metric_sums = initialize_latent_metric_totals()
+        test_dual_metric_sums = initialize_dual_tower_metric_totals()
         test_count = 0
         test_pred_count = 0
+        test_dual_count = 0
 
         with torch.no_grad():
             itr_test = iter(test_loader)
@@ -2991,7 +3258,17 @@ def main(args):
                     "pred_latent_smooth_l1": torch.tensor(0.0, device=device),
                     "pred_latent_cosine_distance": torch.tensor(0.0, device=device),
                 }
+                dual_metrics_eval = {
+                    "vlm_loss": torch.tensor(0.0, device=device),
+                    "vlm_latent_dist": torch.tensor(0.0, device=device),
+                    "vlm_latent_smooth_l1": torch.tensor(0.0, device=device),
+                    "vlm_latent_cosine_distance": torch.tensor(0.0, device=device),
+                    "mutual_loss": torch.tensor(0.0, device=device),
+                    "mutual_latent_dist": torch.tensor(0.0, device=device),
+                    "mutual_latent_cosine_distance": torch.tensor(0.0, device=device),
+                }
                 pred_metric_valid = False
+                dual_metric_valid = False
                 if use_pred:
                     if args.predictor == "tiny":
                         feats_ar_in = feats_eval_full[:, p0:p1, ...].contiguous()
@@ -3112,6 +3389,22 @@ def main(args):
                             y_future, tgt_future
                         )
                         pred_metric_valid = True
+                        if vlm_tower is not None:
+                            dual_ext = build_batched_vlm_guidance_inputs(
+                                extras=extras,
+                                args=args,
+                                device=x_seq.device,
+                            )
+                            vlm_future = vlm_tower(
+                                dual_ext,
+                                feats_eval_full[:, p0:p1, ...].contiguous(),
+                                target_shape=y_future.shape,
+                            )
+                            if vlm_future is not None:
+                                dual_metrics_eval = compute_dual_tower_metrics(
+                                    y_future, vlm_future, tgt_future
+                                )
+                                dual_metric_valid = True
 
                         feats_task_in = y_future.detach()
                 else:
@@ -3172,6 +3465,12 @@ def main(args):
                             pred_metrics_eval[key].item()
                         )
                     test_pred_count += 1
+                if dual_metric_valid:
+                    for key in test_dual_metric_sums:
+                        test_dual_metric_sums[key] += float(
+                            dual_metrics_eval[key].item()
+                        )
+                    test_dual_count += 1
 
                 # ---------- Visualization ----------
                 if (
@@ -3224,6 +3523,14 @@ def main(args):
         avg_test_lat_metrics = {
             key: distributed_average_from_sum_count(val, test_pred_count, ddp=ddp)
             for key, val in test_lat_metric_sums.items()
+        }
+        avg_train_dual_metrics = {
+            key: distributed_average_from_sum_count(val, train_dual_count, ddp=ddp)
+            for key, val in train_dual_metric_sums.items()
+        }
+        avg_test_dual_metrics = {
+            key: distributed_average_from_sum_count(val, test_dual_count, ddp=ddp)
+            for key, val in test_dual_metric_sums.items()
         }
 
         avg_train_loss = distributed_mean_scalar(
@@ -3286,15 +3593,37 @@ def main(args):
                 if avg_test_lat_metrics["pred_latent_cosine_distance"] is not None
                 else "NA"
             )
+            train_vlm_loss_str = (
+                f"{avg_train_dual_metrics['vlm_loss']:.4f}"
+                if avg_train_dual_metrics["vlm_loss"] is not None
+                else "NA"
+            )
+            train_mutual_loss_str = (
+                f"{avg_train_dual_metrics['mutual_loss']:.4f}"
+                if avg_train_dual_metrics["mutual_loss"] is not None
+                else "NA"
+            )
+            val_vlm_loss_str = (
+                f"{avg_test_dual_metrics['vlm_loss']:.4f}"
+                if avg_test_dual_metrics["vlm_loss"] is not None
+                else "NA"
+            )
+            val_mutual_loss_str = (
+                f"{avg_test_dual_metrics['mutual_loss']:.4f}"
+                if avg_test_dual_metrics["mutual_loss"] is not None
+                else "NA"
+            )
             print(
                 f"[Epoch {epoch+1:03d}] "
                 f"train_loss={avg_train_loss:.4f} acc={avg_train_acc:.4f} "
                 f"pred_loss={train_pred_loss_str} pred_latent_dist={train_pred_latent_str} "
                 f"pred_smooth_l1={train_pred_s1_str} pred_cos={train_pred_cos_str} "
+                f"vlm_loss={train_vlm_loss_str} mutual_loss={train_mutual_loss_str} "
                 f"avg_dist={avg_train_avgdist:.4f} final_dist={avg_train_finaldist:.4f} | "
                 f"val_loss={avg_test_loss:.4f} acc={avg_test_acc:.4f} "
                 f"pred_loss={val_pred_loss_str} pred_latent_dist={val_pred_latent_str} "
                 f"pred_smooth_l1={val_pred_s1_str} pred_cos={val_pred_cos_str} "
+                f"vlm_loss={val_vlm_loss_str} mutual_loss={val_mutual_loss_str} "
                 f"avg_dist={avg_test_avgdist:.4f} final_dist={avg_test_finaldist:.4f} | "
                 f"time={dt:.1f}s"
                 + (
@@ -3314,6 +3643,7 @@ def main(args):
                     optimizer,
                     logs["best"],
                     predictor=predictor,
+                    vlm_tower=vlm_tower,
                     optimizer_pred=optimizer_pred,
                     scheduler=scheduler,
                     scaler=scaler,
@@ -3343,6 +3673,8 @@ def main(args):
                 "pred_latent_cosine_distance": avg_test_lat_metrics[
                     "pred_latent_cosine_distance"
                 ],
+                "vlm_loss": avg_test_dual_metrics["vlm_loss"],
+                "mutual_loss": avg_test_dual_metrics["mutual_loss"],
                 "ckpt": str(best_path),
             }
             try:
@@ -3353,6 +3685,7 @@ def main(args):
                     optimizer,
                     best_blob,
                     predictor=predictor,
+                    vlm_tower=vlm_tower,
                     optimizer_pred=optimizer_pred,
                     scheduler=scheduler,
                     scaler=scaler,
@@ -3380,6 +3713,23 @@ def main(args):
                     "train_pred_latent_cosine_distance": avg_train_lat_metrics[
                         "pred_latent_cosine_distance"
                     ],
+                    "train_vlm_loss": avg_train_dual_metrics["vlm_loss"],
+                    "train_vlm_latent_dist": avg_train_dual_metrics[
+                        "vlm_latent_dist"
+                    ],
+                    "train_vlm_latent_smooth_l1": avg_train_dual_metrics[
+                        "vlm_latent_smooth_l1"
+                    ],
+                    "train_vlm_latent_cosine_distance": avg_train_dual_metrics[
+                        "vlm_latent_cosine_distance"
+                    ],
+                    "train_mutual_loss": avg_train_dual_metrics["mutual_loss"],
+                    "train_mutual_latent_dist": avg_train_dual_metrics[
+                        "mutual_latent_dist"
+                    ],
+                    "train_mutual_latent_cosine_distance": avg_train_dual_metrics[
+                        "mutual_latent_cosine_distance"
+                    ],
                     "train_nonfinite_skips": int(nonfinite_skip_count),
                     "train_acc": avg_train_acc,
                     "train_avg_dist": avg_train_avgdist,
@@ -3392,6 +3742,21 @@ def main(args):
                     ],
                     "val_pred_latent_cosine_distance": avg_test_lat_metrics[
                         "pred_latent_cosine_distance"
+                    ],
+                    "val_vlm_loss": avg_test_dual_metrics["vlm_loss"],
+                    "val_vlm_latent_dist": avg_test_dual_metrics["vlm_latent_dist"],
+                    "val_vlm_latent_smooth_l1": avg_test_dual_metrics[
+                        "vlm_latent_smooth_l1"
+                    ],
+                    "val_vlm_latent_cosine_distance": avg_test_dual_metrics[
+                        "vlm_latent_cosine_distance"
+                    ],
+                    "val_mutual_loss": avg_test_dual_metrics["mutual_loss"],
+                    "val_mutual_latent_dist": avg_test_dual_metrics[
+                        "mutual_latent_dist"
+                    ],
+                    "val_mutual_latent_cosine_distance": avg_test_dual_metrics[
+                        "mutual_latent_cosine_distance"
                     ],
                     "val_acc": avg_test_acc,
                     "val_avg_dist": avg_test_avgdist,
@@ -3531,7 +3896,25 @@ if __name__ == "__main__":
     parser.add_argument("--optimize_together_downstream", action="store_true")
     parser.add_argument("--lambda_pred", type=float, default=1.0)
     parser.add_argument("--lambda_task", type=float, default=1.0)
+    parser.add_argument(
+        "--lambda_vlm",
+        type=float,
+        default=0.5,
+        help="loss weight for the trainable VLM tower predicting future JEPA latents",
+    )
+    parser.add_argument(
+        "--lambda_mutual",
+        type=float,
+        default=0.1,
+        help="loss weight for bidirectional JEPA<->VLM latent mutual learning",
+    )
     parser.add_argument("--lr_pred", type=float, default=1e-4)
+    parser.add_argument(
+        "--lr_vlm",
+        type=float,
+        default=None,
+        help="learning rate for the trainable VLM latent tower; defaults to --lr_pred",
+    )
     parser.add_argument(
         "--ref_mode",
         type=str,
@@ -3690,6 +4073,35 @@ if __name__ == "__main__":
     )
     parser.set_defaults(thinkjepa_use_vlm_merge=True)
     parser.add_argument(
+        "--thinkjepa_dual_tower",
+        action="store_true",
+        help="enable a trainable VLM latent tower and bidirectional JEPA<->VLM mutual-learning losses",
+    )
+    parser.add_argument(
+        "--thinkjepa_vlm_tower_hidden_dim",
+        type=int,
+        default=384,
+        help="hidden width for the trainable VLM latent tower",
+    )
+    parser.add_argument(
+        "--thinkjepa_vlm_tower_max_frames",
+        type=int,
+        default=128,
+        help="maximum future frames the VLM latent tower can decode",
+    )
+    parser.add_argument(
+        "--thinkjepa_vlm_tower_max_patches",
+        type=int,
+        default=4096,
+        help="maximum patch tokens per frame the VLM latent tower can decode",
+    )
+    parser.add_argument(
+        "--thinkjepa_vlm_tower_dropout",
+        type=float,
+        default=0.1,
+        help="dropout for the trainable VLM latent tower",
+    )
+    parser.add_argument(
         "--thinkjepa_direct_vit_condition",
         action="store_true",
         help="shortcut ablation: disable ThinkJEPA VLM merge + disable cache ext + force thinkjepa_vlm_source=none",
@@ -3830,6 +4242,28 @@ if __name__ == "__main__":
         raise ValueError(
             f"--temporal_stride must be positive, got {args.temporal_stride}"
         )
+    if args.lr_vlm is None:
+        args.lr_vlm = args.lr_pred
+    if float(args.lambda_vlm) < 0:
+        raise ValueError(f"--lambda_vlm must be >= 0, got {args.lambda_vlm}")
+    if float(args.lambda_mutual) < 0:
+        raise ValueError(f"--lambda_mutual must be >= 0, got {args.lambda_mutual}")
+    if int(args.thinkjepa_vlm_tower_hidden_dim) <= 0:
+        raise ValueError(
+            f"--thinkjepa_vlm_tower_hidden_dim must be positive, got {args.thinkjepa_vlm_tower_hidden_dim}"
+        )
+    if int(args.thinkjepa_vlm_tower_max_frames) <= 0:
+        raise ValueError(
+            f"--thinkjepa_vlm_tower_max_frames must be positive, got {args.thinkjepa_vlm_tower_max_frames}"
+        )
+    if int(args.thinkjepa_vlm_tower_max_patches) <= 0:
+        raise ValueError(
+            f"--thinkjepa_vlm_tower_max_patches must be positive, got {args.thinkjepa_vlm_tower_max_patches}"
+        )
+    if not (0.0 <= float(args.thinkjepa_vlm_tower_dropout) < 1.0):
+        raise ValueError(
+            f"--thinkjepa_vlm_tower_dropout must be in [0,1), got {args.thinkjepa_vlm_tower_dropout}"
+        )
     if int(args.thinkjepa_think_drop_prefix_len) < 0:
         raise ValueError(
             f"--thinkjepa_think_drop_prefix_len must be >= 0, got {args.thinkjepa_think_drop_prefix_len}"
@@ -3843,6 +4277,9 @@ if __name__ == "__main__":
         args.thinkjepa_use_vlm_merge = False
         args.thinkjepa_use_cache_ext = False
         args.thinkjepa_vlm_source = "none"
+        args.thinkjepa_dual_tower = False
+    if bool(getattr(args, "thinkjepa_dual_tower", False)) and args.predictor != "thinkjepa":
+        raise ValueError("--thinkjepa_dual_tower requires --predictor thinkjepa")
     if bool(getattr(args, "thinkjepa_drop_thinking_tokens", False)):
         has_ids = any(
             str(getattr(args, k, "")).strip()
