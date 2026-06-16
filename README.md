@@ -66,6 +66,9 @@ thinkjepa/
 │   ├── qwen3_parallel_cache_extractor.py
 │   ├── thinker_train.py
 │   ├── thinker_predictor.py
+│   ├── omnijepa.py
+│   ├── omnijepa_data.py
+│   ├── omnijepa_toy_train.py
 │   ├── models.py
 │   ├── predictor.py
 │   ├── hf_egodex.py
@@ -75,6 +78,7 @@ thinkjepa/
 │   ├── train.sh
 │   └── eval_main.sh
 ├── vjepa2/
+├── tests/
 ├── logo/
 ├── LICENSE
 ├── NOTICE
@@ -457,6 +461,57 @@ The same two path forms are supported for evaluation:
 - an absolute local Hugging Face snapshot path such as `<LOCAL_HF_SNAPSHOT>/part2`
 
 For the public release, we also smoke-tested `scripts/eval_main.sh` with both path forms above.
+
+## OmniJEPA V1 Scaffold
+
+This branch includes a lightweight implementation scaffold for the follow-up OmniJEPA direction:
+
+```text
+VLM mid-layer states -> JEPA task guidance -> predicted future JEPA latent
+predicted future JEPA latent -> VLM/action conditioning tokens
+```
+
+The reusable modules live in `cache_train/omnijepa.py`:
+
+- `VlmToJepaTaskAdapter`: converts VLM hidden states into ThinkJEPA-compatible VLM guidance streams.
+- `JepaFutureTokenResampler`: compresses `[B,T,P,D]` future JEPA latents into a small set of VLM-space future tokens.
+- `JepaLateFusionAdapter`: lets late VLM layers cross-attend to JEPA future tokens for text/QA/plan outputs.
+- `FlowActionExpert`: flow-matching action chunk head for `<MODE=ACT>` robot outputs.
+- `OmniJepaBridge`: backbone-agnostic wrapper around the adapters above.
+
+Explicit mode routing is used by design:
+
+```text
+<MODE=QA>   -> LM head
+<MODE=PLAN> -> LM head
+<MODE=ACT>  -> flow action expert
+```
+
+Unified cache helpers are in `cache_train/omnijepa_data.py`. Each `.npz` sample should provide:
+
+```text
+episode_id
+timestep
+mode
+instruction
+obs_frames
+current_jepa_latent
+predicted_future_jepa_latent
+oracle_future_jepa_latent
+target_text or target_action_chunk or target_traj_tokens
+```
+
+Run the smoke tests with:
+
+```bash
+python -m unittest tests.test_omnijepa
+```
+
+For a synthetic end-to-end cache/training smoke run, use:
+
+```bash
+python cache_train/omnijepa_toy_train.py --generate_toy_data --cache_root /tmp/omnijepa_toy_cache
+```
 
 ## Third-Party Sources
 
