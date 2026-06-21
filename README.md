@@ -55,6 +55,48 @@ ThinkJEPA is a dual-path embodied prediction framework in which a vision-languag
 - The released training path predicts future trajectory outputs from JEPA features conditioned by pyramid guidance from the VLM branch.
 - This public snapshot is intentionally minimal: it includes the core train/eval code, preprocessing scripts, retained EgoDex helpers, and a bundled `vjepa2/` dependency subtree required by the released path.
 
+## Research Draft: Dynamic Test-Time K For Latent World-Model Planning
+
+This repo is also tracking an ongoing TTJepa research direction on learned
+recurrent refinement depth for latent world-model planning. The working question
+is:
+
+> Can a latent world-model planner learn to spend more recurrent transition
+> refinement only when deeper imagined dynamics are useful?
+
+The main paper framing is dynamic test-time compute along the transition-depth
+axis `K`. In latent MPC / CEM planning, test-time compute is usually spent on
+sampling width, optimizer iterations, or rollout horizon. This line studies a
+different axis: how many recurrent refinement steps should be used for each
+imagined transition.
+
+Current evidence on visual cube-triple:
+
+| Method / rule | Success | Mean K | Takeaway |
+| --- | ---: | ---: | --- |
+| LeWM baseline | 74% | n/a | Non-recurrent latent world-model baseline |
+| TTJepa fixed K1 | 70% | 1.00 | Shallow recurrent transition is insufficient |
+| TTJepa fixed K2 | 76% | 2.00 | Most fixed-depth gain appears by K2 |
+| TTJepa fixed K4 | 78% | 4.00 | Best fixed-depth result in this run |
+| Raw latent MSE stopping | 76% | 2.32 | Reasonable first signal, but still incomplete |
+| Hindsight K1/K4 chooser | 82% | 1.36 | Upper bound: only a small subset needs deep compute |
+| Joint learned selector, clean setting | 78% | 1.064 | Beats fixed K1/K4 sanity checks at near-K1 compute |
+
+The current interpretation is that raw latent MSE is useful but too blunt: it
+partially identifies transitions where deeper refinement helps, but it misses
+planner-relevant contact details that are smoothed in the latent space. The more
+promising direction is to train an internal selector together with the recurrent
+predictor so the model learns when another refinement step is worth paying for.
+
+Important caveat: one stronger joint-depth training variant improves all fixed
+depths to 80%. That is interesting, but it is not clean evidence for dynamic
+test-time compute because fixed K1 is already equally strong. We treat it as a
+separate training-time regularization / latent smoothing hypothesis rather than
+the headline dynamic-K result.
+
+See [TTJepa Dynamic K Research Notes](TTJEPA_DYNAMIC_K_RESEARCH.md) for the
+full experiment record, paths, and next-step checklist.
+
 ## Repository Layout
 
 ```text
