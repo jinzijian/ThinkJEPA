@@ -10,6 +10,10 @@
 <p align="center"><strong>Official implementation of ThinkJEPA.</strong></p>
 
 <p align="center">
+  <a href="README.zh-CN.md"><strong>中文研究草稿</strong></a>
+</p>
+
+<p align="center">
   Haichao Zhang<sup>1</sup>, Yijiang Li<sup>2</sup>, Shwai He<sup>3</sup>, Tushar Nagarajan<sup>4</sup>, Mingfei Chen<sup>5</sup>,<br>
   Jianglin Lu<sup>1</sup>, Ang Li<sup>3</sup>, and Yun Fu<sup>1</sup>
 </p>
@@ -55,47 +59,247 @@ ThinkJEPA is a dual-path embodied prediction framework in which a vision-languag
 - The released training path predicts future trajectory outputs from JEPA features conditioned by pyramid guidance from the VLM branch.
 - This public snapshot is intentionally minimal: it includes the core train/eval code, preprocessing scripts, retained EgoDex helpers, and a bundled `vjepa2/` dependency subtree required by the released path.
 
-## Research Draft: Dynamic Test-Time K For Latent World-Model Planning
+## Research Draft: Dynamic K For Latent World-Model Planning
 
-This repo is also tracking an ongoing TTJepa research direction on learned
-recurrent refinement depth for latent world-model planning. The working question
+This repository is also tracking an ongoing TTJepa research direction on
+dynamic test-time compute for latent world-model planning. The working question
 is:
 
-> Can a latent world-model planner learn to spend more recurrent transition
-> refinement only when deeper imagined dynamics are useful?
+> Can raw latent prediction error decide when an imagined transition needs more
+> recurrent refinement steps?
 
-The main paper framing is dynamic test-time compute along the transition-depth
-axis `K`. In latent MPC / CEM planning, test-time compute is usually spent on
-sampling width, optimizer iterations, or rollout horizon. This line studies a
-different axis: how many recurrent refinement steps should be used for each
+### Motivation
+
+Latent model-predictive control usually spends test-time compute on wider CEM
+sampling, more optimizer iterations, or longer rollout horizons. We study a
+different axis: the number of recurrent refinement steps `K` used inside each
 imagined transition.
 
-Current evidence on visual cube-triple:
+This matters because contact-heavy manipulation has uneven transition
+difficulty. Some transitions are free-space and should be cheap. Others involve
+object contact, occlusion, or multi-object binding and may need additional
+latent dynamics refinement. A fixed large `K` wastes compute on easy
+transitions; a fixed small `K` misses hard contact cases.
 
-| Method / rule | Success | Mean K | Takeaway |
-| --- | ---: | ---: | --- |
-| LeWM baseline | 74% | n/a | Non-recurrent latent world-model baseline |
-| TTJepa fixed K1 | 70% | 1.00 | Shallow recurrent transition is insufficient |
-| TTJepa fixed K2 | 76% | 2.00 | Most fixed-depth gain appears by K2 |
-| TTJepa fixed K4 | 78% | 4.00 | Best fixed-depth result in this run |
-| Raw latent MSE stopping | 76% | 2.32 | Reasonable first signal, but still incomplete |
-| Hindsight K1/K4 chooser | 82% | 1.36 | Upper bound: only a small subset needs deep compute |
-| Joint learned selector, clean setting | 78% | 1.064 | Beats fixed K1/K4 sanity checks at near-K1 compute |
+### Method
 
-The current interpretation is that raw latent MSE is useful but too blunt: it
-partially identifies transitions where deeper refinement helps, but it misses
-planner-relevant contact details that are smoothed in the latent space. The more
-promising direction is to train an internal selector together with the recurrent
-predictor so the model learns when another refinement step is worth paying for.
+We start from LeWM-style latent planning: encode the current visual state and
+goal, imagine action sequences in latent space, and choose actions with CEM
+using a goal-matching cost. TTJepa changes only the transition predictor:
 
-Important caveat: one stronger joint-depth training variant improves all fixed
-depths to 80%. That is interesting, but it is not clean evidence for dynamic
-test-time compute because fixed K1 is already equally strong. We treat it as a
-separate training-time regularization / latent smoothing hypothesis rather than
-the headline dynamic-K result.
+1. The predictor is recurrent and weight-tied across refinement depth.
+2. A fixed-depth run uses the same `K` for every imagined transition, for
+   example `K=1`, `K=2`, or `K=4`.
+3. A dynamic-depth run decides whether to continue refining after each depth.
+4. The paper focus is this dynamic choice of `K`, not a new action space,
+   tokenizer, or planner.
 
-See [TTJepa Dynamic K Research Notes](TTJEPA_DYNAMIC_K_RESEARCH.md) for the
-full experiment record, paths, and next-step checklist.
+The core hypothesis is that useful test-time compute should be allocated to the
+small subset of transitions where deeper latent dynamics changes planning
+success.
+
+### LeWM Baselines
+
+Current working-run results are below. The source matters: different
+checkpoints and sweeps should not be merged into one fixed-depth comparison.
+The table prioritizes the recurrent checkpoints used by the raw-MSE analysis;
+depths not evaluated for the same checkpoint are marked `n/a`.
+
+`LeWM baseline` and `Fixed K1` are not the same model. LeWM baseline uses the
+original non-recurrent transition predictor. Fixed K1 uses the TTJepa recurrent
+predictor but stops after its first refinement step. They share the latent
+planning / CEM evaluation setup, but the predictor architecture, training
+objective, and checkpoint differ. For dynamic-K claims, the fair internal
+comparison is within the same TTJepa checkpoint: fixed K1/K2/K3/K4 versus
+dynamic K. LeWM baseline is an external reference.
+
+| Dataset / run | LeWM baseline | Fixed K1 | Fixed K2 | Fixed K3 | Fixed K4 | Main observation |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Reacher seed42 | 80% | 88% | n/a | n/a | 86% | K4 is worse than K1 in this checkpoint |
+| Cube single seed42 | 72% | 80% | n/a | n/a | 78% | K4 is slightly lower than K1 |
+| Cube single seed43 | 72% | 88% | n/a | n/a | 90% | K4 improves over K1 by 2 points |
+| Cube single seed44 | 72% | 66% | n/a | n/a | 64% | K4 is slightly lower than K1 |
+| Cube single 3-seed avg | 72% | 78% | n/a | n/a | 77.3% | Average K4 is slightly lower, but seed43 shows K4 can help |
+| Cube single original rerun `20260621_refixed_k1234` | 72% | 80% | 76% | 78% | 78% | Same original checkpoint with K1-4 completed; K1 is best, K3/K4 recover to 78% |
+| Cube double original rerun `20260621_refixed_k1234` | 66% | 72% | 70% | 68% | 70% | Same original checkpoint; extra depth does not help |
+| Cube triple original | 74% | 70% | 76% | 76% | 78% | Clearest setting where deeper K helps; most gain appears by K2 |
+
+These are current working-run numbers, not final matched multi-seed benchmark
+statistics. The raw-MSE analysis below uses 50 episodes for Reacher,
+Cube double, and Cube triple, and 150 episodes for Cube single.
+
+Additional source notes:
+
+- Cube single results were not lost; they are scattered across several naming
+  conventions. The table now lists seed42/43/44 separately and adds a
+  same-source original-checkpoint rerun with `K1=80%`, `K2=76%`, `K3=78%`, and
+  `K4=78%`. The conclusion is not that K4 never helps, but that its benefit is
+  unstable in the current runs.
+- Cube double's original raw-MSE checkpoint now has same-source `K1=72%`,
+  `K2=70%`, `K3=68%`, and `K4=70%`.
+- Cube triple has the cleanest same-source fixed-depth sweep:
+  `K1=70%`, `K2=76%`, `K3=76%`, and `K4=78%`. Exploratory whitened,
+  probe-weighted, and learned-selector checkpoints are preserved in
+  [TTJEPA_EXPERIMENT_RESULTS.md](TTJEPA_EXPERIMENT_RESULTS.md), not mixed into
+  the Paper 1 main table.
+
+The accurate statement is not that K4 is always better. Fixed-depth gains are
+dataset- and checkpoint-dependent. Cube-triple is the clearest current evidence
+that transition refinement depth changes task success; Cube single has
+seed-level gains, but the original-checkpoint rerun still favors K1; Reacher
+and Cube double do not need large K in the current checkpoints.
+
+### First Method: Raw Latent MSE Stopping
+
+The first dynamic-K method uses raw latent MSE as the continue signal. For a
+transition, compare the latent prediction error after a shallow depth against
+the error after deeper refinement. If deeper refinement reduces latent MSE by
+enough, use a deeper `K`; otherwise stop early.
+
+This is a reasonable first attempt because it directly asks whether recurrent
+refinement improves the learned latent prediction. It is also deliberately
+simple: no planner features, no task-specific probes, and no extra learned
+selector.
+
+The table below is specifically a K1/K4 dynamic-selection analysis: each
+episode either stays at K1 or switches to K4 based on raw latent MSE.
+
+| Dataset | Fixed K1 | Fixed K4 | Best raw-MSE dynamic K | Hindsight K1/K4 chooser | Depth-helped cases |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reacher | 88%@K1.00 | 86%@K4.00 | 88%@K1.06 to K2.32 | 92%@K1.12 | 2 / 50 |
+| Cube single | 78%@K1.00 | 77.3%@K4.00 | 77.3%@K2.72 to K2.96 | 80.7%@K1.08 | 4 / 150 |
+| Cube double | 72%@K1.00 | 70%@K4.00 | 72%@K1.00 to K2.62 | 72%@K1.00 | 0 / 50 |
+| Cube triple | 70%@K1.00 | 78%@K4.00 | 76%@K2.32 | 82%@K1.36 | 6 / 50 |
+
+Analysis:
+
+- Raw latent MSE is not a useless signal. On cube-triple it recovers a real
+  portion of the K4 gain: `70% -> 76%`, while using mean `K=2.32`.
+- It does not reach fixed K4 `78%`, and it is still below the hindsight K1/K4
+  chooser `82%@K1.36`.
+- On Reacher and Cube double, fixed K4 is not better than K1, so raw MSE mostly
+  spends extra compute without improving success. Cube single is more mixed:
+  one seed improves with K4, but the 3-seed average is slightly lower than K1.
+- The failure mode is alignment: raw latent MSE measures representation error,
+  not planner benefit. It can miss task-relevant contact details if the latent
+  space is smoothed, anisotropic, or partially collapsed around features that
+  are easy to predict but not decisive for CEM action selection.
+
+The conclusion is that raw latent MSE is a useful v0 and a strong diagnostic,
+but it is not a sufficient final answer for dynamic test-time compute.
+
+### Mechanistic Analysis: Latent Smoothing And Planner Alignment
+
+We tested the main failure hypothesis that deeper recurrent refinement may
+reduce generic latent prediction error by globally smoothing away task-relevant
+contact details. The first analysis pass recomputes `K1/K2/K3/K4` predicted
+latents on the same K-refinement evaluation windows, then measures latent
+spectrum/effective rank and linear state-probe quality. Artifacts are under
+`analysis/k_smoothing_20260622`.
+
+![Spectrum K1 vs K4 scatter](analysis/k_smoothing_20260622/figures/spectrum_k1_vs_k4_scatter.png)
+
+![Probe R2 K1 vs K4 scatter](analysis/k_smoothing_20260622/figures/probe_r2_k1_vs_k4_scatter.png)
+
+![Category probe MSE K1 vs K4 scatter](analysis/k_smoothing_20260622/figures/category_probe_mse_k1_vs_k4_scatter.png)
+
+The result is useful but more subtle than the initial hypothesis:
+
+- Global spectrum is almost unchanged with depth. Across reacher, cube-single,
+  cube-double, and cube-triple, the `K4/K1` entropy-rank ratio is essentially
+  `1.000`; total variance and top singular-vector concentration also barely
+  move.
+- Linear state probes are also nearly unchanged. Cube-single block position
+  stays at `R2=0.991` for both `K1` and `K4`; cube-double block position changes
+  from `0.946` to `0.946`; cube-triple block position changes from `0.902` to
+  `0.902`. Other probe deltas are mostly at the third decimal place.
+- Depth-helped and depth-hurt subsets do not show a clean global collapse
+  signature. Their spectra and probe errors move only slightly, so the current
+  evidence does not support a strong claim that large `K` globally compresses
+  the latent representation.
+
+This changes the interpretation. The failure mode is less likely to be a broad
+latent-rank collapse, and more likely to be a local planner-alignment problem:
+small changes in imagined transitions can change CEM elite ranking or selected
+actions without visibly changing global spectrum or simple linear probes.
+
+The remaining decisive analysis is therefore CEM ranking stability. For the
+same candidate action sequences, evaluate terminal costs with `K1/K2/K3/K4` and
+measure top-elite overlap, Kendall rank correlation, and whether the selected
+action changes. If latent MSE improves while CEM ranking does not improve, the
+extra recurrent depth is not useful planning compute. If cube-triple helped
+episodes show ranking correction at larger `K`, that directly explains the
+`70% -> 76%` raw-MSE dynamic gain.
+
+### Complete Experiment Ledger
+
+This README is now scoped to Paper 1: fixed-depth recurrent refinement, raw
+latent-MSE dynamic K, and the associated failure/mechanistic analysis. Other
+experiments are preserved separately and should not be mixed into the main
+paper tables:
+
+- learned continue-head / joint marginal-depth runs,
+- planner-feature diagnostic selectors,
+- whitened and probe-weighted halt-label variants,
+- the stronger `rel0005` training-time regularization lead.
+
+See [TTJEPA_EXPERIMENT_RESULTS.md](TTJEPA_EXPERIMENT_RESULTS.md) for the full
+experiment ledger, checkpoint paths, result directories, and log paths.
+
+### Current Paper Position
+
+The current paper skeleton is:
+
+1. Define transition refinement depth `K` as a test-time compute axis in latent
+   world-model planning.
+2. Show that fixed deeper `K` helps on cube-triple but not uniformly across all
+   datasets.
+3. Introduce raw latent MSE stopping as the first dynamic-K method and show its
+   strengths and weaknesses across four datasets.
+4. Use hindsight K1/K4 selection to estimate how much headroom raw MSE leaves.
+5. Analyze why raw MSE is incomplete: global latent spectrum and linear state
+   probes do not show a broad collapse, pointing instead to local
+   planner-alignment failures.
+6. Identify CEM candidate-ranking stability as the next decisive diagnostic.
+
+### Proposed Paper Outline And Figure Plan
+
+Working title:
+
+> When Should a Latent Planner Refine? Dynamic Transition Depth via Raw Latent Error
+
+Core thesis:
+
+> Test-time compute in latent world-model planning should not only be allocated
+> to CEM sampling width, optimizer iterations, or rollout horizon. It can also
+> be allocated inside each imagined transition through recurrent refinement
+> depth `K`.
+
+| Section | Core argument | Figure / table | What it should show |
+| --- | --- | --- | --- |
+| 1. Introduction | Manipulation transitions have uneven difficulty: free-space motion is cheap, while contact, grasping, and multi-object interactions need more dynamics refinement. | Fig. 1 motivation cartoon: reaching vs contact-rich grasping; CEM rollout with variable `K`. | The paper is about compute allocation inside latent dynamics, not generic robot reasoning. |
+| 2. Background | LeWM-style planning rolls out candidate actions in latent space and optimizes terminal goal cost with CEM. Prior compute axes are `N/I/H`; this paper studies `K`. | Fig. 2 LeWM planner plus recurrent transition-depth axis. | We keep the planner/action space fixed and expose a new test-time compute knob. |
+| 3. Method | A weight-tied recurrent transition predictor produces `K1/K2/K3/K4` predictions; dynamic K decides whether another refinement step is worth paying for. | Fig. 3 recurrent refinement cell and stop/continue decision. | `K` is a controlled inference-depth variable, not simply a larger model. |
+| 4. Main Results | Fixed deeper `K` clearly helps cube-triple, but not every dataset needs large `K`; therefore K matters, but must be allocated dynamically. | Table 1 LeWM / fixed K / dynamic K; `analysis/paper1_figures/png_direct/main_success_vs_lewm.png`. | Establish the baseline and show that transition depth changes planning success. |
+| 5. Raw Latent MSE Dynamic K | Raw latent MSE is a clean first dynamic-K rule. On cube-triple it recovers much of the K4 gain: `70%@K1 -> 76%@K2.32`. | Fig. 4 success-vs-mean-K Pareto: `analysis/paper1_figures/png_direct/raw_mse_tolerance_pareto.png`. | Raw MSE is a real signal, not an empty heuristic. |
+| 6. Failure Analysis | Raw MSE does not perfectly match planner benefit. Hindsight K1/K4 selection shows additional dynamic-K headroom. | Fig. 5 outcome split: `analysis/paper1_figures/png_direct/k1_k4_outcome_split.png`; Fig. 6 precision/recall: `analysis/paper1_figures/png_direct/raw_mse_precision_recall_failure.png`. | The failure mode is alignment between latent prediction improvement and action selection. |
+| 7. Mechanistic Analysis | Deeper K does not show a broad global latent-collapse signature: spectrum and state probes stay near the `K1=K4` diagonal. | Fig. 7 spectrum scatter; Fig. 8 probe scatter; Fig. 9 category probe MSE scatter under `analysis/k_smoothing_20260622/figures/`. | The issue is likely local planner alignment, not simple global latent smoothing. |
+| 8. Discussion | The safe claim is compute allocation with a simple raw-MSE rule, not universal superiority of large K. | Limitations / next-experiment table. | Multi-seed raw-MSE validation, wall-clock, and CEM-ranking traces remain required for strong ICLR claims. |
+
+Open requirements before making strong ICLR-level claims:
+
+- Replicate the raw-MSE dynamic-K analysis across seeds.
+- Report raw-MSE precision/recall on K1-fail/K4-success and
+  K1-success/K4-fail episodes.
+- Add wall-clock latency and recurrent transition-call counts.
+- Add CEM ranking stability by depth and outcome category.
+- Keep learned-selector and joint-depth results in
+  [TTJEPA_EXPERIMENT_RESULTS.md](TTJEPA_EXPERIMENT_RESULTS.md), not the Paper 1
+  main tables.
+
+See [TTJepa Dynamic K Research Notes](TTJEPA_DYNAMIC_K_RESEARCH.md) for working
+research notes and [TTJepa Experiment Results Ledger](TTJEPA_EXPERIMENT_RESULTS.md)
+for the complete result archive.
 
 ## Repository Layout
 

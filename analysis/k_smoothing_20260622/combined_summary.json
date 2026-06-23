@@ -1,0 +1,60 @@
+[
+  {
+    "findings": "# Smoothing Analysis: reacher\n\n- Spectrum all episodes: K4/K1 entropy-rank ratio = 1.000, variance ratio = 1.000, top1 variance fraction delta = -0.000.\n- Probe observation: R2 K1=-6.196, K4=-6.189, delta=+0.008.\n- Probe qpos: R2 K1=-0.131, K4=-0.131, delta=+0.000.\n\nCategory probe MSE is written to category_probe_mse.csv for helped/hurt comparisons.\n",
+    "h5": "/vepfs/zijian/lewm_data/reacher.h5",
+    "labels": [
+      "observation",
+      "qpos"
+    ],
+    "name": "reacher",
+    "output_dir": "analysis/k_smoothing_20260622/reacher",
+    "policy": "ttjepa_reacher_dynamic_oracle_k4_10e/weights_epoch_10.pt",
+    "rows": 50
+  },
+  {
+    "findings": "# Smoothing Analysis: cube_single\n\n- Spectrum all episodes: K4/K1 entropy-rank ratio = 1.000, variance ratio = 1.003, top1 variance fraction delta = -0.000.\n- Probe block_pos: R2 K1=0.991, K4=0.991, delta=+0.000.\n- Probe block_quat: R2 K1=-0.082, K4=-0.081, delta=+0.000.\n- Probe observation: R2 K1=0.527, K4=0.527, delta=-0.001.\n- Probe qpos: R2 K1=0.192, K4=0.188, delta=-0.004.\n\nCategory probe MSE is written to category_probe_mse.csv for helped/hurt comparisons.\n",
+    "h5": "/vepfs/zijian/lewm_data/datasets/ogbench/cube_single_expert.h5",
+    "labels": [
+      "block_pos",
+      "block_quat",
+      "observation",
+      "qpos"
+    ],
+    "name": "cube_single",
+    "output_dir": "analysis/k_smoothing_20260622/cube_single",
+    "policy": "ttjepa_cube_dynamic_oracle_k4_10e/weights_epoch_10.pt",
+    "rows": 150
+  },
+  {
+    "findings": "# Smoothing Analysis: cube_double\n\n- Spectrum all episodes: K4/K1 entropy-rank ratio = 1.000, variance ratio = 1.000, top1 variance fraction delta = +0.000.\n- Probe block_pairwise_dist: R2 K1=0.900, K4=0.899, delta=-0.001.\n- Probe block_pos: R2 K1=0.946, K4=0.946, delta=-0.001.\n- Probe block_quat: R2 K1=0.900, K4=0.900, delta=+0.000.\n- Probe goal_relative_block_pos: R2 K1=1.000, K4=1.000, delta=+0.000.\n- Probe observation: R2 K1=1.000, K4=1.000, delta=+0.000.\n- Probe qpos: R2 K1=0.844, K4=0.842, delta=-0.002.\n\nCategory probe MSE is written to category_probe_mse.csv for helped/hurt comparisons.\n",
+    "h5": "/vepfs/zijian/lewm_data/datasets/ogbench/visual_cube_double_play.h5",
+    "labels": [
+      "block_pairwise_dist",
+      "block_pos",
+      "block_quat",
+      "goal_relative_block_pos",
+      "observation",
+      "qpos"
+    ],
+    "name": "cube_double",
+    "output_dir": "analysis/k_smoothing_20260622/cube_double",
+    "policy": "ttjepa_cube_double_dynamic_oracle_k4_10e/weights_epoch_10.pt",
+    "rows": 50
+  },
+  {
+    "findings": "# Smoothing Analysis: cube_triple\n\n- Spectrum all episodes: K4/K1 entropy-rank ratio = 1.000, variance ratio = 1.000, top1 variance fraction delta = -0.000.\n- Probe block_pairwise_dist: R2 K1=0.895, K4=0.894, delta=-0.000.\n- Probe block_pos: R2 K1=0.902, K4=0.902, delta=-0.000.\n- Probe block_quat: R2 K1=0.952, K4=0.952, delta=-0.000.\n- Probe goal_relative_block_pos: R2 K1=1.000, K4=1.000, delta=+0.000.\n- Probe observation: R2 K1=1.000, K4=1.000, delta=+0.000.\n- Probe qpos: R2 K1=0.832, K4=0.832, delta=+0.000.\n\nCategory probe MSE is written to category_probe_mse.csv for helped/hurt comparisons.\n",
+    "h5": "/vepfs/zijian/lewm_data/datasets/ogbench/visual_cube_triple_play.h5",
+    "labels": [
+      "block_pairwise_dist",
+      "block_pos",
+      "block_quat",
+      "goal_relative_block_pos",
+      "observation",
+      "qpos"
+    ],
+    "name": "cube_triple",
+    "output_dir": "analysis/k_smoothing_20260622/cube_triple",
+    "policy": "ttjepa_cube_triple_dynamic_oracle_k4_10e/weights_epoch_10.pt",
+    "rows": 50
+  }
+]

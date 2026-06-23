@@ -1,0 +1,90 @@
+[
+  {
+    "depth": 1,
+    "label": "qpos",
+    "mse": 3.7631768274602178,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 1.1306553317243342,
+    "r2": -0.1306553317243342,
+    "target_dim": 2,
+    "target_variance": 3.3283147585932227
+  },
+  {
+    "depth": 2,
+    "label": "qpos",
+    "mse": 3.7627088231155343,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 1.1305147187178646,
+    "r2": -0.13051471871786458,
+    "target_dim": 2,
+    "target_variance": 3.3283147585932227
+  },
+  {
+    "depth": 3,
+    "label": "qpos",
+    "mse": 3.7627090715748124,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 1.1305147933680393,
+    "r2": -0.13051479336803928,
+    "target_dim": 2,
+    "target_variance": 3.3283147585932227
+  },
+  {
+    "depth": 4,
+    "label": "qpos",
+    "mse": 3.7627090715748124,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 1.1305147933680393,
+    "r2": -0.13051479336803928,
+    "target_dim": 2,
+    "target_variance": 3.3283147585932227
+  },
+  {
+    "depth": 1,
+    "label": "observation",
+    "mse": 16.838923360846422,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 7.196464328136704,
+    "r2": -6.196464328136704,
+    "target_dim": 6,
+    "target_variance": 2.3398883942229345
+  },
+  {
+    "depth": 2,
+    "label": "observation",
+    "mse": 16.821214944133985,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 7.188896267729995,
+    "r2": -6.188896267729995,
+    "target_dim": 6,
+    "target_variance": 2.3398883942229345
+  },
+  {
+    "depth": 3,
+    "label": "observation",
+    "mse": 16.8212167151953,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 7.188897024629904,
+    "r2": -6.188897024629904,
+    "target_dim": 6,
+    "target_variance": 2.3398883942229345
+  },
+  {
+    "depth": 4,
+    "label": "observation",
+    "mse": 16.8212167151953,
+    "n_test": 45,
+    "n_train": 105,
+    "normalized_mse": 7.188897024629904,
+    "r2": -6.188897024629904,
+    "target_dim": 6,
+    "target_variance": 2.3398883942229345
+  }
+]

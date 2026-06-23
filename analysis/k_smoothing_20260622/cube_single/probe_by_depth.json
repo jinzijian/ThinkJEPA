@@ -1,0 +1,178 @@
+[
+  {
+    "depth": 1,
+    "label": "qpos",
+    "mse": 0.17198402432198867,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.8078652488264059,
+    "r2": 0.19213475117359413,
+    "target_dim": 21,
+    "target_variance": 0.21288701868514784
+  },
+  {
+    "depth": 2,
+    "label": "qpos",
+    "mse": 0.1727640195942524,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.8115291418955145,
+    "r2": 0.1884708581044855,
+    "target_dim": 21,
+    "target_variance": 0.21288701868514784
+  },
+  {
+    "depth": 3,
+    "label": "qpos",
+    "mse": 0.1727669169163156,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.8115427515654752,
+    "r2": 0.18845724843452483,
+    "target_dim": 21,
+    "target_variance": 0.21288701868514784
+  },
+  {
+    "depth": 4,
+    "label": "qpos",
+    "mse": 0.17279061419052588,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.8116540654180372,
+    "r2": 0.1883459345819628,
+    "target_dim": 21,
+    "target_variance": 0.21288701868514784
+  },
+  {
+    "depth": 1,
+    "label": "observation",
+    "mse": 0.27403230780797067,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.4726859038607494,
+    "r2": 0.5273140961392506,
+    "target_dim": 28,
+    "target_variance": 0.5797344612347464
+  },
+  {
+    "depth": 2,
+    "label": "observation",
+    "mse": 0.27436022720666636,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.47325154109748924,
+    "r2": 0.5267484589025108,
+    "target_dim": 28,
+    "target_variance": 0.5797344612347464
+  },
+  {
+    "depth": 3,
+    "label": "observation",
+    "mse": 0.27432977964569666,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.4731990212577943,
+    "r2": 0.5268009787422057,
+    "target_dim": 28,
+    "target_variance": 0.5797344612347464
+  },
+  {
+    "depth": 4,
+    "label": "observation",
+    "mse": 0.2743585555566201,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.4732486576221086,
+    "r2": 0.5267513423778913,
+    "target_dim": 28,
+    "target_variance": 0.5797344612347464
+  },
+  {
+    "depth": 1,
+    "label": "block_pos",
+    "mse": 0.00012803470645556672,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.008894763370125817,
+    "r2": 0.9911052366298742,
+    "target_dim": 3,
+    "target_variance": 0.01439439152317277
+  },
+  {
+    "depth": 2,
+    "label": "block_pos",
+    "mse": 0.00012593298154659128,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.008748753383834143,
+    "r2": 0.9912512466161658,
+    "target_dim": 3,
+    "target_variance": 0.01439439152317277
+  },
+  {
+    "depth": 3,
+    "label": "block_pos",
+    "mse": 0.00012545237809174437,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.008715365139942541,
+    "r2": 0.9912846348600575,
+    "target_dim": 3,
+    "target_variance": 0.01439439152317277
+  },
+  {
+    "depth": 4,
+    "label": "block_pos",
+    "mse": 0.0001253035805823084,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 0.008705027953462901,
+    "r2": 0.991294972046537,
+    "target_dim": 3,
+    "target_variance": 0.01439439152317277
+  },
+  {
+    "depth": 1,
+    "label": "block_quat",
+    "mse": 0.17589394093241228,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 1.0816546211366151,
+    "r2": -0.08165462113661515,
+    "target_dim": 4,
+    "target_variance": 0.16261562378162903
+  },
+  {
+    "depth": 2,
+    "label": "block_quat",
+    "mse": 0.17594011802901185,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 1.0819385858352444,
+    "r2": -0.08193858583524438,
+    "target_dim": 4,
+    "target_variance": 0.16261562378162903
+  },
+  {
+    "depth": 3,
+    "label": "block_quat",
+    "mse": 0.17580657908720584,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 1.081117392036638,
+    "r2": -0.08111739203663793,
+    "target_dim": 4,
+    "target_variance": 0.16261562378162903
+  },
+  {
+    "depth": 4,
+    "label": "block_quat",
+    "mse": 0.17581446414112414,
+    "n_test": 135,
+    "n_train": 315,
+    "normalized_mse": 1.0811658809440068,
+    "r2": -0.08116588094400679,
+    "target_dim": 4,
+    "target_variance": 0.16261562378162903
+  }
+]

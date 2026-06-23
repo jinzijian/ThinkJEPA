@@ -21,6 +21,7 @@ logs/
 runs/
 artifacts/
 tmp/
+tmp_ttjepa_remote/
 temp/
 scratch/
 sandbox/

@@ -1,0 +1,74 @@
+{
+  "auc_depth_helped_vs_easy": {},
+  "category_counts": {
+    "depth_hurt_k1_success_k4_fail": 1,
+    "easy_both_success": 35,
+    "hard_both_fail": 14
+  },
+  "category_metric_means": {
+    "depth_hurt_k1_success_k4_fail": {
+      "action_norm_max_to_goal": 1.2622878768475687,
+      "action_norm_mean_to_goal": 0.9828709485522001,
+      "goal_observation_dist": 0.0,
+      "goal_pos_dist_max": 0.16199108987219876,
+      "goal_pos_dist_mean": 0.0809955477300671,
+      "goal_qpos_dist": 0.3747238185353643,
+      "goal_quat_dist_max": 0.0809623779256964,
+      "goal_quat_dist_mean": 0.04048121490740205,
+      "latent_mse_improvement_abs": -4.5280903577804565e-06,
+      "latent_mse_improvement_rel": -0.0014795069582760334,
+      "latent_mse_k1": 0.003060540184378624,
+      "latent_mse_k4": 0.0030650682747364044,
+      "latent_oracle_depth_2pct": 1.0,
+      "residual_max": 1.2056065315846354e-05,
+      "residual_mean_k1": 1.2056065315846354e-05,
+      "residual_mean_k4": 5.601147150258168e-12,
+      "start_block_pairwise_min": 0.0860142097821687
+    },
+    "easy_both_success": {
+      "action_norm_max_to_goal": 1.4848816706998698,
+      "action_norm_mean_to_goal": 0.91382293342065,
+      "goal_observation_dist": 0.0,
+      "goal_pos_dist_max": 0.11168924763360837,
+      "goal_pos_dist_mean": 0.05585087546952013,
+      "goal_qpos_dist": 1.1257623768776064,
+      "goal_quat_dist_max": 0.07461437584336005,
+      "goal_quat_dist_mean": 0.037316766662641936,
+      "latent_mse_improvement_abs": -2.6578382988061225e-06,
+      "latent_mse_improvement_rel": -0.0013050409050525298,
+      "latent_mse_k1": 0.003327010781504214,
+      "latent_mse_k4": 0.00332966861980302,
+      "latent_oracle_depth_2pct": 1.0285714285714285,
+      "residual_max": 2.2257219058831523e-05,
+      "residual_mean_k1": 2.2257219058831523e-05,
+      "residual_mean_k4": 2.2899246568624e-09,
+      "start_block_pairwise_min": 0.23338562472537133
+    },
+    "hard_both_fail": {
+      "action_norm_max_to_goal": 1.2148037062455104,
+      "action_norm_mean_to_goal": 0.7135530645102877,
+      "goal_observation_dist": 0.0,
+      "goal_pos_dist_max": 0.1484893418632487,
+      "goal_pos_dist_mean": 0.07465103844402357,
+      "goal_qpos_dist": 1.1037921583563215,
+      "goal_quat_dist_max": 0.0869577780748358,
+      "goal_quat_dist_mean": 0.05316765325714961,
+      "latent_mse_improvement_abs": 1.4128612487443856e-05,
+      "latent_mse_improvement_rel": 0.0036899468603743507,
+      "latent_mse_k1": 0.004049030049437923,
+      "latent_mse_k4": 0.004034901436950479,
+      "latent_oracle_depth_2pct": 1.0714285714285714,
+      "residual_max": 2.8757768372348176e-05,
+      "residual_mean_k1": 2.8757768372348176e-05,
+      "residual_mean_k4": 9.049370477142585e-08,
+      "start_block_pairwise_min": 0.24491877382601365
+    }
+  },
+  "num_rows": 50,
+  "spec": {
+    "h5_path": "/home/robotuser/zijian/lewm_data/datasets/ogbench/visual_cube_double_play.h5",
+    "name": "cube_double_dynamic_oracle",
+    "num_seeds": 1,
+    "policy": "ttjepa_cube_double_dynamic_oracle_k4_10e/weights_epoch_10.pt"
+  }
+}
