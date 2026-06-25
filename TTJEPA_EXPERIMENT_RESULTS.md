@@ -2,11 +2,11 @@
 
 Last updated: 2026-06-23 PT
 
-This file preserves the full experiment record. It is intentionally broader
-than the README paper draft. Paper 1 currently uses **raw latent MSE dynamic K**
-as the only dynamic-K method; learned selectors, joint-depth training,
-whitened/probe-weighted variants, and planner-feature selectors are kept here
-so the results are not lost.
+This file preserves the full experiment record. The README now keeps the
+public-facing motivation plus the main fixed-depth, post-hoc raw-MSE, and
+raw-MSE-supervised learned-head result tables. This ledger is broader: it also
+keeps checkpoint paths, logs, planner-feature selectors, whitened/probe-weighted
+variants, and exploratory training-time regularization leads.
 
 ## Scope Map
 

@@ -65,8 +65,9 @@ This repository is also tracking an ongoing TTJepa research direction on
 dynamic test-time compute for latent world-model planning. The working question
 is:
 
-> Can raw latent prediction error decide when an imagined transition needs more
-> recurrent refinement steps?
+> Can a JEPA latent planner learn when an imagined transition needs more
+> recurrent refinement steps, instead of using the same transition-model depth
+> everywhere?
 
 ### Motivation
 
@@ -96,7 +97,9 @@ using a goal-matching cost. TTJepa changes only the transition predictor:
 
 The core hypothesis is that useful test-time compute should be allocated to the
 small subset of transitions where deeper latent dynamics changes planning
-success.
+success. Raw latent MSE is the first signal we study: it can be used either as
+a post-hoc diagnostic for whether deeper refinement helped, or as supervision
+for a learned continue head that makes the stop/continue decision at inference.
 
 ### LeWM Baselines
 
@@ -138,10 +141,9 @@ Additional source notes:
 - Cube double's original raw-MSE checkpoint now has same-source `K1=72%`,
   `K2=70%`, `K3=68%`, and `K4=70%`.
 - Cube triple has the cleanest same-source fixed-depth sweep:
-  `K1=70%`, `K2=76%`, `K3=76%`, and `K4=78%`. Exploratory whitened,
-  probe-weighted, and learned-selector checkpoints are preserved in
-  [TTJEPA_EXPERIMENT_RESULTS.md](TTJEPA_EXPERIMENT_RESULTS.md), not mixed into
-  the Paper 1 main table.
+  `K1=70%`, `K2=76%`, `K3=76%`, and `K4=78%`. The learned continue-head
+  cube-triple results are listed separately below because they use a different
+  checkpoint family.
 
 The accurate statement is not that K4 is always better. Fixed-depth gains are
 dataset- and checkpoint-dependent. Cube-triple is the clearest current evidence
@@ -149,17 +151,18 @@ that transition refinement depth changes task success; Cube single has
 seed-level gains, but the original-checkpoint rerun still favors K1; Reacher
 and Cube double do not need large K in the current checkpoints.
 
-### First Method: Raw Latent MSE Stopping
+### Experiment Record 1: Fixed Depth And Post-Hoc Raw Latent MSE
 
-The first dynamic-K method uses raw latent MSE as the continue signal. For a
+The first analysis uses raw latent MSE as the continue signal. For a
 transition, compare the latent prediction error after a shallow depth against
 the error after deeper refinement. If deeper refinement reduces latent MSE by
 enough, use a deeper `K`; otherwise stop early.
 
 This is a reasonable first attempt because it directly asks whether recurrent
-refinement improves the learned latent prediction. It is also deliberately
-simple: no planner features, no task-specific probes, and no extra learned
-selector.
+refinement improves the learned latent prediction. It is deliberately simple:
+no planner features, no task-specific probes, and no extra learned selector.
+The table below is post-hoc / diagnostic: it uses the observed latent-MSE
+improvement to select between already evaluated fixed-depth outcomes.
 
 The table below is specifically a K1/K4 dynamic-selection analysis: each
 episode either stays at K1 or switches to K4 based on raw latent MSE.
@@ -187,6 +190,41 @@ Analysis:
 
 The conclusion is that raw latent MSE is a useful v0 and a strong diagnostic,
 but it is not a sufficient final answer for dynamic test-time compute.
+
+### Experiment Record 2: Raw-MSE-Supervised Learned Continue Head
+
+The next version uses the same raw latent-MSE idea as training supervision
+rather than as a post-hoc selector. During training, each recurrent depth
+predicts a next latent, and a lightweight `continue_head` is supervised to
+predict whether another refinement step is worth paying for according to the
+MSE improvement target. At test time, the model no longer sees the true next
+observation or true latent MSE; it stops based on the learned continue
+probability.
+
+This is the cleaner dynamic test-time compute mechanism:
+
+- raw latent MSE defines the supervision signal;
+- `continue_head` learns to predict stop/continue from the recurrent state;
+- inference uses the learned head, not post-hoc access to target MSE;
+- mean `K` measures the selected refinement depth.
+
+Current cube-triple learned-head results:
+
+| Run | Learned dynamic result | LeWM baseline | Fixed K1 sanity | Fixed K4 sanity | Main interpretation |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `rel00005` | 78%@K=1.064 | 74% | 74% | 74% | Clean dynamic-K gain: improves success while using near-K1 depth |
+| `rel0002` | 78%@K=1.035 | 74% | 78% | 72% | Avoids harmful over-refinement, but does not beat the same checkpoint's K1 |
+| `rel0005` | 80%@K=1.000 to K=1.062 | 74% | 80% | 80% | Strong training-time regularization effect; not clean evidence for dynamic compute |
+| `rel0001` | 74%@K=1.47 | 74% | n/a | n/a | Weaker setting |
+| `rel000` | 66% near K1 | 74% | n/a | n/a | No-margin target fails |
+
+The strongest clean learned-head result is `rel00005`: it reaches
+`78%` success at mean `K=1.064`, compared with `74%` for LeWM, `74%` for fixed
+K1, and `74%` for fixed K4. This uses about `73.4%` less transition-depth
+compute than uniformly evaluating K4. The `rel0005` run is also important, but
+for a different reason: because K1, dynamic K, and K4 all reach `80%`, it
+suggests a training-time regularization or anti-smoothing effect rather than a
+pure dynamic-compute advantage.
 
 ### Mechanistic Analysis: Latent Smoothing And Planner Alignment
 
@@ -233,18 +271,19 @@ episodes show ranking correction at larger `K`, that directly explains the
 
 ### Complete Experiment Ledger
 
-This README is now scoped to Paper 1: fixed-depth recurrent refinement, raw
-latent-MSE dynamic K, and the associated failure/mechanistic analysis. Other
-experiments are preserved separately and should not be mixed into the main
-paper tables:
+This README is meant to be the public-facing research record: motivation,
+method variants, and the main experiment tables. The full ledger keeps all
+checkpoint paths, result directories, log paths, and exploratory branches:
 
-- learned continue-head / joint marginal-depth runs,
-- planner-feature diagnostic selectors,
-- whitened and probe-weighted halt-label variants,
+- fixed-depth recurrent refinement;
+- post-hoc raw latent-MSE K allocation;
+- raw-MSE-supervised learned continue-head runs;
+- planner-feature diagnostic selectors;
+- whitened and probe-weighted halt-label variants;
 - the stronger `rel0005` training-time regularization lead.
 
 See [TTJEPA_EXPERIMENT_RESULTS.md](TTJEPA_EXPERIMENT_RESULTS.md) for the full
-experiment ledger, checkpoint paths, result directories, and log paths.
+archive.
 
 ### Current Paper Position
 
@@ -293,9 +332,9 @@ Open requirements before making strong ICLR-level claims:
   K1-success/K4-fail episodes.
 - Add wall-clock latency and recurrent transition-call counts.
 - Add CEM ranking stability by depth and outcome category.
-- Keep learned-selector and joint-depth results in
-  [TTJEPA_EXPERIMENT_RESULTS.md](TTJEPA_EXPERIMENT_RESULTS.md), not the Paper 1
-  main tables.
+- Keep post-hoc raw-MSE and learned-head result tables separated by checkpoint
+  family, so the README remains a clean experiment record rather than one
+  merged table.
 
 See [TTJepa Dynamic K Research Notes](TTJEPA_DYNAMIC_K_RESEARCH.md) for working
 research notes and [TTJepa Experiment Results Ledger](TTJEPA_EXPERIMENT_RESULTS.md)
